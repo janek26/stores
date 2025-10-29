@@ -3,7 +3,6 @@ import { getStoresConfig } from '../config';
 import { StoresError, logger } from '../logger';
 import { StateCreator } from '../types';
 import { isPromiseLike } from '../utils/promiseUtils';
-import { applyStateUpdate } from '../utils/storeUtils';
 import { FieldMetadata, NormalizedSyncConfig, SESSION_ID, SyncHandle, SyncStateKey, SyncUpdate, SyncValues, TIMESTAMP } from './types';
 
 // ============ Sync Enhancer =================================================== //
@@ -105,34 +104,42 @@ export function createSyncedStateCreator<T extends Record<string, unknown>>(
     };
 
     const enhancedSet: typeof set = function (update: Parameters<typeof set>[0], replace?: boolean): void | Promise<void> {
-      if (isApplyingRemote || !syncKeySet) return replace ? set(update, replace) : set(update);
+      if (isApplyingRemote) return replace ? set(update, replace) : set(update);
+
+      const previousState = get();
+      const maybePromise: void | Promise<void> = replace ? set(update, true) : set(update);
+
+      // Return early if sync not initialized
+      if (!syncKeySet) return maybePromise;
 
       const timestamp = generateTimestamp();
-      let publishKeys: SyncStateKey<T>[] = [];
-      let publishValues: SyncValues<T> = Object.create(null);
+      const nextState = get();
+      const publishKeys: SyncStateKey<T>[] = [];
+      const publishValues: SyncValues<T> = Object.create(null);
 
-      // Single set() call that executes update once and computes changes
-      const wrappedUpdate = (state: T): T => {
-        const newState = applyStateUpdate(state, update, replace);
+      const isReplace = replace === true;
 
+      if (isReplace) {
         for (const key of syncKeys) {
-          if (!Object.is(newState[key], state[key])) {
+          publishKeys.push(key);
+          publishValues[key] = nextState[key];
+        }
+      } else {
+        for (const key of syncKeys) {
+          if (!Object.is(nextState[key], previousState[key])) {
             publishKeys.push(key);
-            publishValues[key] = newState[key];
+            publishValues[key] = nextState[key];
           }
         }
+      }
 
-        // Set metadata for persist middleware
-        if (publishKeys.length) setMetadata(timestamp, publishKeys);
+      if (!publishKeys.length) return maybePromise;
 
-        return newState;
-      };
-
-      const maybePromise: void | Promise<void> = replace ? set(wrappedUpdate, true) : set(wrappedUpdate);
+      // Set metadata for persist middleware
+      setMetadata(timestamp, publishKeys);
 
       const publish = () => {
-        if (!publishKeys.length) return;
-        queueOrPublish({ keys: publishKeys, replace: replace ?? false, values: publishValues, timestamp });
+        queueOrPublish({ keys: publishKeys, replace: isReplace, values: publishValues, timestamp });
       };
 
       if (isPromiseLike(maybePromise)) return maybePromise.finally(publish);

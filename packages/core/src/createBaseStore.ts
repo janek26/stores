@@ -95,8 +95,9 @@ export function createBaseStore<S, PersistedState extends Partial<S>, PersistRet
 
   const finalStateCreator: StateCreator<S> = hydrationGate
     ? (set, get, api) => {
+        const result = hydrationGate.stateCreator(set, get, api);
         if (syncMiddleware?.syncContext) syncMiddleware.syncContext.setWithoutPersist = api.setState;
-        return hydrationGate.stateCreator(set, get, api);
+        return result;
       }
     : stateCreator;
 

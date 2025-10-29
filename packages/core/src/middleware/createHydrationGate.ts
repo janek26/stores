@@ -1,6 +1,7 @@
 import { createHydrationCoordinator, HydrationCoordinator } from 'src/utils/hydrationCoordinator';
 import { StateCreator, SetStateArgs, SetState } from '../types';
 import { ensureError } from 'src/logger';
+import { isPromiseLike } from '../utils/promiseUtils';
 
 type WrappedOnRehydrateStorage<S> = (
   userCallback?: (state: S) => ((finalState?: S, error?: unknown) => void) | void,
@@ -30,29 +31,37 @@ export function createHydrationGate<S>(stateCreator: StateCreator<S>): {
 
   const wrappedStateCreator: StateCreator<S> = (set, get, api) => {
     let pendingSetCalls: Array<SetStateArgs<S>> | undefined = undefined;
+    const originalSet = set;
 
     const deferredSet: SetState<S> = (...args) => {
-      // -- Hydrating: defer set() calls to be flushed after hydration
+      // Always apply updates immediately to state
+      const result = args[1] === true ? set(args[0], args[1]) : set(args[0]);
+
+      // -- Hydrating: defer persistence to be flushed after hydration
       if (!isHydrated) {
         if (!coordinator) coordinator = createHydrationCoordinator();
         if (!pendingSetCalls) pendingSetCalls = [];
         pendingSetCalls.push(args);
-        return coordinator.promise;
       }
-      // -- Hydrated: let synchronous calls pass through
-      return args[1] === true ? set(args[0], args[1]) : set(args[0]);
+
+      return result;
     };
 
-    flushPendingSetCalls = () => {
+    const result = stateCreator(deferredSet, get, api);
+
+    flushPendingSetCalls = async () => {
       if (!pendingSetCalls?.length) return;
+      // Updates were already applied to state, just persist them by calling originalSet
       for (const args of pendingSetCalls) {
-        if (args[1]) api.setState(args[0], args[1]);
-        else api.setState(args[0]);
+        const result = args[1] ? originalSet(args[0], args[1]) : originalSet(args[0]);
+        if (isPromiseLike(result)) {
+          await result;
+        }
       }
       pendingSetCalls = undefined;
     };
 
-    return stateCreator(deferredSet, get, api);
+    return result;
   };
 
   const hydrationPromise: () => Promise<void> = () => {
@@ -67,12 +76,12 @@ export function createHydrationGate<S>(stateCreator: StateCreator<S>): {
   const wrapOnRehydrateStorage: WrappedOnRehydrateStorage<S> = (userCallback, preFlushCallback, postFlushCallback) => {
     return state => {
       const userRehydrateCallback = userCallback?.(state);
-      return (finalState, error) => {
+      return async (finalState, error) => {
         isHydrated = true;
 
         // This allows the sync enhancer to flush before processing queued set() calls.
         if (preFlushCallback) preFlushCallback();
-        if (flushPendingSetCalls) flushPendingSetCalls();
+        if (flushPendingSetCalls) await flushPendingSetCalls();
         if (postFlushCallback) postFlushCallback();
 
         if (error) coordinator?.fail(ensureError(error));
