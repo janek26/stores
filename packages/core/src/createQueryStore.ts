@@ -1,4 +1,4 @@
-import { BaseStoreOptions, createBaseStore } from './createBaseStore';
+import { createBaseStore } from './createBaseStore';
 import { IS_DEV, IS_TEST } from '@env';
 import { StoresError, ensureError, logger } from './logger';
 import { SubscriptionManager } from './queryStore/classes/SubscriptionManager';
@@ -17,6 +17,7 @@ import {
 import { $, AttachValue, SignalFunction, Unsubscribe, attachValueSubscriptionMap } from './signal';
 import {
   BaseStore,
+  BaseStoreOptions,
   OptionallyPersistedStore,
   PersistConfig,
   PersistedStore,
@@ -31,6 +32,7 @@ import { debounce } from './utils/debounce';
 import { dequal } from './utils/equality';
 import { omitStoreMethods } from './utils/persistUtils';
 import { time } from './utils/time';
+import { getStoresConfig, markStoreCreated } from './config';
 
 const [persist, discard] = [true, false];
 
@@ -77,6 +79,25 @@ export function createQueryStore<
 ): PersistedStore<QueryStoreState<TData, TParams>, PersistedState>;
 
 /**
+ * Creates a persisted, query-enabled store with async persistence.
+ *
+ * @template TQueryFnData - The raw data type returned by the fetcher
+ * @template TParams - Parameters passed to the fetcher function
+ * @template TData - The transformed data type, if applicable (defaults to `TQueryFnData`)
+ * @template PersistedState - The persisted state type, if a stricter type than `Partial<CustomState>` is desired
+ */
+export function createQueryStore<
+  TQueryFnData,
+  TParams extends Record<string, unknown> = Record<string, never>,
+  TData = TQueryFnData,
+  PersistedState extends Partial<QueryStoreState<TData, TParams>> = Partial<QueryStoreState<TData, TParams>>,
+  PersistReturn extends Promise<void> = Promise<void>,
+>(
+  config: QueryStoreConfig<TQueryFnData, TParams, TData>,
+  options: BaseStoreOptions<QueryStoreState<TData, TParams>, PersistedState, PersistReturn>
+): PersistedStore<QueryStoreState<TData, TParams>, PersistedState, false, PersistReturn>;
+
+/**
  * Creates a persisted, query-enabled store with data fetching capabilities.
  *
  * @template TQueryFnData - The raw data type returned by the fetcher
@@ -96,6 +117,28 @@ export function createQueryStore<
   stateCreator: StateCreator<QueryStoreState<TData, TParams, CustomState>, CustomState>,
   options: BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState>
 ): PersistedStore<QueryStoreState<TData, TParams, CustomState>, PersistedState>;
+
+/**
+ * Creates a persisted, query-enabled store with async persistence.
+ *
+ * @template TQueryFnData - The raw data type returned by the fetcher
+ * @template TParams - Parameters passed to the fetcher function
+ * @template CustomState - User-defined custom store state
+ * @template TData - The transformed data type, if applicable (defaults to `TQueryFnData`)
+ * @template PersistedState - The persisted state type, if a stricter type than `Partial<CustomState>` is desired
+ */
+export function createQueryStore<
+  TQueryFnData,
+  TParams extends Record<string, unknown> = Record<string, never>,
+  CustomState = unknown,
+  TData = TQueryFnData,
+  PersistedState extends Partial<QueryStoreState<TData, TParams, CustomState>> = Partial<QueryStoreState<TData, TParams, CustomState>>,
+  PersistReturn extends Promise<void> = Promise<void>,
+>(
+  config: QueryStoreConfig<TQueryFnData, TParams, TData, CustomState>,
+  stateCreator: StateCreator<QueryStoreState<TData, TParams, CustomState>, CustomState>,
+  options: BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState, PersistReturn>
+): PersistedStore<QueryStoreState<TData, TParams, CustomState>, PersistedState, false, PersistReturn>;
 
 /**
  * Creates a query-enabled store with data fetching capabilities.
@@ -153,6 +196,30 @@ export function createQueryStore<
 ): OptionallyPersistedStore<QueryStoreState<TData, TParams, CustomState>, PersistedState>;
 
 /**
+ * Creates a conditionally persisted, query-enabled store with async persistence.
+ *
+ * `options.persist` may be `undefined` – the returned store exposes `persist?`.
+ *
+ * @template TQueryFnData - The raw data type returned by the fetcher
+ * @template TParams - Parameters passed to the fetcher function
+ * @template CustomState - User-defined custom store state
+ * @template TData - The transformed data type, if applicable (defaults to `TQueryFnData`)
+ * @template PersistedState - The persisted state type, if a stricter type than `Partial<CustomState>` is desired
+ */
+export function createQueryStore<
+  TQueryFnData,
+  TParams extends Record<string, unknown> = Record<string, never>,
+  CustomState = unknown,
+  TData = TQueryFnData,
+  PersistedState extends Partial<QueryStoreState<TData, TParams, CustomState>> = Partial<QueryStoreState<TData, TParams, CustomState>>,
+  PersistReturn extends Promise<void> = Promise<void>,
+>(
+  config: QueryStoreConfig<TQueryFnData, TParams, TData, CustomState>,
+  stateCreator: StateCreator<QueryStoreState<TData, TParams, CustomState>, CustomState>,
+  options?: BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState, PersistReturn>
+): OptionallyPersistedStore<QueryStoreState<TData, TParams, CustomState>, PersistedState, PersistReturn>;
+
+/**
  * Creates a conditionally persisted, query-enabled store with data fetching capabilities.
  *
  * `options.persist` may be `undefined` – the returned store exposes `persist?`.
@@ -169,10 +236,29 @@ export function createQueryStore<
   PersistedState extends Partial<QueryStoreState<TData, TParams>> = Partial<QueryStoreState<TData, TParams>>,
 >(
   config: QueryStoreConfig<TQueryFnData, TParams, TData, QueryStoreState<TData, TParams>>,
-  options:
-    | (PersistConfig<QueryStoreState<TData, TParams>, PersistedState> | BaseStoreOptions<QueryStoreState<TData, TParams>, PersistedState>)
-    | undefined
+  options: BaseStoreOptions<QueryStoreState<TData, TParams>, PersistedState> | undefined
 ): OptionallyPersistedStore<QueryStoreState<TData, TParams>, PersistedState>;
+
+/**
+ * Creates a conditionally persisted, query-enabled store with async persistence.
+ *
+ * `options.persist` may be `undefined` – the returned store exposes `persist?`.
+ *
+ * @template TQueryFnData - The raw data type returned by the fetcher
+ * @template TParams - Parameters passed to the fetcher function
+ * @template TData - The transformed data type, if applicable (defaults to `TQueryFnData`)
+ * @template PersistedState - The persisted state type, if a stricter type than `Partial<CustomState>` is desired
+ */
+export function createQueryStore<
+  TQueryFnData,
+  TParams extends Record<string, unknown> = Record<string, never>,
+  TData = TQueryFnData,
+  PersistedState extends Partial<QueryStoreState<TData, TParams>> = Partial<QueryStoreState<TData, TParams>>,
+  PersistReturn extends Promise<void> = Promise<void>,
+>(
+  config: QueryStoreConfig<TQueryFnData, TParams, TData, QueryStoreState<TData, TParams>>,
+  options: BaseStoreOptions<QueryStoreState<TData, TParams>, PersistedState, PersistReturn> | undefined
+): OptionallyPersistedStore<QueryStoreState<TData, TParams>, PersistedState, PersistReturn>;
 
 /**
  * Creates a query-enabled store with data fetching capabilities.
@@ -189,13 +275,17 @@ export function createQueryStore<
   CustomState,
   TData = TQueryFnData,
   PersistedState extends Partial<QueryStoreState<TData, TParams, CustomState>> = Partial<QueryStoreState<TData, TParams, CustomState>>,
+  PersistReturn = void,
 >(
   config: QueryStoreConfig<TQueryFnData, TParams, TData, QueryStoreState<TData, TParams, CustomState>>,
   creatorOrOptions?:
     | StateCreator<QueryStoreState<TData, TParams, CustomState>, CustomState>
-    | BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState>,
-  maybeOptions?: BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState>
-): Store<QueryStoreState<TData, TParams, CustomState>> | Store<QueryStoreState<TData, TParams, CustomState>, PersistedState> {
+    | BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState, PersistReturn>,
+  maybeOptions?: BaseStoreOptions<QueryStoreState<TData, TParams, CustomState>, PersistedState, PersistReturn>
+):
+  | Store<QueryStoreState<TData, TParams, CustomState>>
+  | Store<QueryStoreState<TData, TParams, CustomState>, PersistedState, false, PersistReturn> {
+  markStoreCreated();
   type S = QueryStoreState<TData, TParams, CustomState>;
 
   /* If arg1 is a function, it's the custom state creator; otherwise, it's options */
@@ -317,15 +407,16 @@ export function createQueryStore<
       const isPartialFunction = typeof partial === 'function';
       if (isPartialFunction || partial.enabled !== undefined) {
         let handleNewEnabled: (() => void) | undefined;
-        originalSet(state => {
+        const result = originalSet(state => {
           const newPartial = isPartialFunction ? partial(state) : partial;
           const newEnabled = newPartial.enabled !== undefined ? newPartial.enabled : state.enabled;
           if (newEnabled !== state.enabled) handleNewEnabled = () => handleEnabledChange(state.enabled, newEnabled);
           return newPartial;
         });
         handleNewEnabled?.();
+        return result;
       } else {
-        originalSet(partial);
+        return originalSet(partial);
       }
     };
 
@@ -850,18 +941,32 @@ export function createQueryStore<
   };
 
   const combinedPersistConfig = persistConfig?.storageKey
-    ? {
-        ...persistConfig,
-        partialize: createBlendedPartialize<TData, TParams, S, CustomState, PersistedState>(keepPreviousData, persistConfig.partialize),
-      }
+    ? (() => {
+        const storage = persistConfig.storage ?? getStoresConfig().storage;
+        // Exclude persistThrottleMs for async storages to match type requirements
+        if (storage?.async) {
+          const { persistThrottleMs: _, ...rest } = persistConfig;
+          return {
+            ...rest,
+            partialize: createBlendedPartialize<TData, TParams, S, CustomState, PersistedState>(keepPreviousData, persistConfig.partialize),
+          };
+        }
+        return {
+          ...persistConfig,
+          partialize: createBlendedPartialize<TData, TParams, S, CustomState, PersistedState>(keepPreviousData, persistConfig.partialize),
+        };
+      })()
     : undefined;
 
-  const queryStore: Store<S> | Store<S, PersistedState> = combinedPersistConfig
-    ? createBaseStore<S, PersistedState>(
-        createState,
-        options && 'sync' in options ? { ...combinedPersistConfig, sync: options.sync } : combinedPersistConfig
-      )
-    : createBaseStore<S>(createState, !options || !('storageKey' in options) ? options : undefined);
+  // TypeScript can't properly resolve overloads with generic PersistReturn, but the implementation
+  // signature accepts it, so this is safe. The runtime code correctly excludes persistThrottleMs
+  // for async storages above.
+  const queryStore = combinedPersistConfig
+    ? // @ts-expect-error - Generic PersistReturn prevents overload resolution
+      createBaseStore(createState, combinedPersistConfig)
+    : options && !('storageKey' in options)
+      ? createBaseStore(createState, options)
+      : createBaseStore(createState);
 
   const { enabled: initialStoreEnabled, error, queryKey } = queryStore.getState();
   if (queryKey && !error) lastFetchKey = queryKey;

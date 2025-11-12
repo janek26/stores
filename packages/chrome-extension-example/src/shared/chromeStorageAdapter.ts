@@ -1,29 +1,23 @@
-import type { AsyncStorageInterface } from '@stores';
+import type { AsyncStorageInterface } from 'stores';
 
-const DEFAULT_NAMESPACE = '@stores/chrome-storage';
+export const CHROME_STORAGE_NAMESPACE = 'stores/chrome-storage';
+const ENABLE_LOGS = false;
+
+export type AreaName = keyof Pick<typeof chrome.storage, 'local' | 'managed' | 'session' | 'sync'>;
 
 export type ChromeStorageAdapterOptions = {
-  area?: 'local' | 'session' | 'sync';
+  area?: AreaName;
   namespace?: string;
 };
 
-function getChromeStorageArea(area: 'local' | 'session' | 'sync'): chrome.storage.StorageArea | null {
-  if (typeof chrome === 'undefined' || !chrome.storage) return null;
-  return chrome.storage[area] ?? null;
-}
-
-function getRuntimeError(): Error | null {
-  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.lastError) return null;
-  return new Error(chrome.runtime.lastError.message);
-}
-
 export class ChromeStorageAdapter implements AsyncStorageInterface {
-  private readonly area: 'local' | 'session' | 'sync';
-  private readonly namespace: string;
+  readonly area: 'local' | 'session' | 'sync' | 'managed';
+  readonly async = true;
+  readonly namespace: string;
 
   constructor(options?: ChromeStorageAdapterOptions) {
     this.area = options?.area ?? 'local';
-    this.namespace = options?.namespace ?? DEFAULT_NAMESPACE;
+    this.namespace = options?.namespace ?? CHROME_STORAGE_NAMESPACE;
   }
 
   async clearAll(): Promise<void> {
@@ -66,10 +60,14 @@ export class ChromeStorageAdapter implements AsyncStorageInterface {
     const storageKey = this.toStorageKey(key);
     const result = await this.getFromStorage(storage, storageKey);
     const value = result[storageKey];
-    return typeof value === 'string' ? value : undefined;
+    const hasValue = typeof value === 'string';
+    if (ENABLE_LOGS)
+      console.log(`[ChromeStorageAdapter] getString("${key}"): ${hasValue ? 'FOUND' : 'NOT FOUND'}`, hasValue ? JSON.parse(value) : null);
+    return hasValue ? value : undefined;
   }
 
   async set(key: string, value: string): Promise<void> {
+    if (ENABLE_LOGS) console.log('[💾 storage.set 💾] Persisting value for key:', key);
     const storage = this.ensureStorage();
     if (!storage) return;
     const storageKey = this.toStorageKey(key);
@@ -81,7 +79,7 @@ export class ChromeStorageAdapter implements AsyncStorageInterface {
   }
 
   private namespacePrefix(): string {
-    return `${this.namespace}:`;
+    return this.namespace ? `${this.namespace}:` : '';
   }
 
   private toStorageKey(key: string): string {
@@ -126,4 +124,14 @@ export class ChromeStorageAdapter implements AsyncStorageInterface {
       }
     });
   }
+}
+
+function getChromeStorageArea(area: AreaName): chrome.storage.StorageArea | null {
+  if (typeof chrome === 'undefined' || !chrome.storage) return null;
+  return chrome.storage[area] ?? null;
+}
+
+function getRuntimeError(): Error | null {
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.lastError) return null;
+  return new Error(chrome.runtime.lastError.message);
 }

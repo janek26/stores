@@ -1,11 +1,12 @@
 export { configureStores } from './config';
-export { BaseStoreOptions, createBaseStore } from './createBaseStore';
+export { createBaseStore } from './createBaseStore';
 export * from './createDerivedStore';
 export * from './createQueryStore';
-export * from './hooks/useLazyRef';
+export * from './createVirtualStore';
 export * from './hooks/useListen';
 export * from './hooks/useStableValue';
 export * from './queryStore/types';
+export * from './storage/storageTypes';
 export * from './sync/types';
 export * from './types';
 export * from './utils/createStoreActions';
