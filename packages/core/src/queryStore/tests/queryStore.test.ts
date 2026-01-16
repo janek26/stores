@@ -2,9 +2,12 @@
  * @jest-environment node
  */
 
+import { createAsyncStorageMock } from 'src/storage/tests/storageCreators.test';
 import { createQueryStore, getQueryKey } from '../../createQueryStore';
+import { createBaseStore } from '../../createBaseStore';
 import { QueryStatuses } from '../../queryStore/types';
 import { time } from '../../utils/time';
+import { flushMacrotask } from 'src/sync/tests/testUtils';
 
 // For these tests we use a simple type for the fetched data and query parameters.
 type TestData = string;
@@ -267,7 +270,7 @@ describe('createQueryStore', () => {
       expect(store.getState().queryKey).toBe('{"id":7}');
 
       // Call reset and verify that state is cleared.
-      store.getState().reset();
+      store.getState().reset(true);
       expect(store.getState().getData({ id: 7 })).toBeNull();
       expect(store.getState().status).toBe(QueryStatuses.Idle);
 
@@ -294,7 +297,7 @@ describe('createQueryStore', () => {
       expect(store2.getState().queryKey).toBe(JSON.stringify({ id: 7 }));
 
       // Call reset and verify that state is cleared.
-      store2.getState().reset();
+      store2.getState().reset(true);
       expect(store2.getState().getData({ id: 7 })).toBeNull();
       expect(store2.getState().status).toBe(QueryStatuses.Idle);
     });
@@ -465,6 +468,50 @@ describe('createQueryStore', () => {
     });
   });
 
+  // ──────────────────────────────────────────────
+  // Reactive Params Lifecycle
+  // ──────────────────────────────────────────────
+  describe('Reactive Params Lifecycle', () => {
+    it('should resubscribe to reactive enabled state after a resubscription', async () => {
+      const enabledStore = createBaseStore<{ enabled: boolean; setEnabled: (value: boolean) => void }>(set => ({
+        enabled: true,
+        setEnabled: value => set({ enabled: value }),
+      }));
+
+      const fetcher = jest.fn(async (params: TestParams) => {
+        return `data-${params.id}`;
+      });
+
+      const store = createQueryStore<TestData, TestParams>({
+        enabled: $ => $(enabledStore).enabled,
+        fetcher,
+        params: { id: 20 },
+        staleTime: 0,
+      });
+
+      const unsubscribe = store.subscribe(() => {
+        return;
+      });
+      await Promise.resolve();
+      fetcher.mockClear();
+      unsubscribe();
+
+      enabledStore.getState().setEnabled(false);
+
+      const unsubscribe2 = store.subscribe(() => {
+        return;
+      });
+      await Promise.resolve();
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(store.getState().enabled).toBe(false);
+
+      enabledStore.getState().setEnabled(true);
+      await flushMacrotask();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      unsubscribe2();
+    });
+  });
+
   describe('Fetch Triggers and Abort Behavior', () => {
     // ──────────────────────────────────────────────
     // Manual Abort via Reset
@@ -487,7 +534,7 @@ describe('createQueryStore', () => {
       const store = createQueryStore<TestData, TestParams>({ fetcher, params: { id: 14 } });
       const fetchPromise = store.getState().fetch({ id: 14 });
       // Manually call reset to abort any active fetch.
-      store.getState().reset();
+      store.getState().reset(true);
       const result = await fetchPromise;
       expect(result).toBeNull();
     });
@@ -571,6 +618,48 @@ describe('createQueryStore', () => {
       // Since getQueryKey sorts keys and then returns the JSON string of the values,
       // the expected output is the JSON string for the object { a: 1, b: 2 }.
       expect(key).toBe(JSON.stringify({ a: 1, b: 2 }));
+    });
+  });
+
+  // ──────────────────────────────────────────────
+  // Async Storage Support
+  // ──────────────────────────────────────────────
+  describe('Async Storage Support', () => {
+    it('should support async storage with Promise<void> return type for setState', async () => {
+      const mockAsyncStorage = createAsyncStorageMock();
+
+      const fetcher = jest.fn(async (params: TestParams) => {
+        return `data-${params.id}`;
+      });
+
+      const store = createQueryStore<TestData, TestParams>(
+        {
+          fetcher,
+          params: { id: 1 },
+        },
+        {
+          storage: mockAsyncStorage,
+          storageKey: 'async-query-store',
+        }
+      );
+
+      // Verify setState returns Promise<void> for async storage.
+      const setStateResult = store.setState({ enabled: false });
+      expect(setStateResult).toBeInstanceOf(Promise);
+      await setStateResult;
+
+      // Verify storage.set was called.
+      expect(mockAsyncStorage.set).toHaveBeenCalled();
+
+      // Call setState and verify store state is updated synchronously.
+      const setEnabledResult = store.setState({ enabled: true });
+      expect(store.getState().enabled).toBe(true);
+
+      // Await persistence.
+      await setEnabledResult;
+
+      // Verify there were exactly two storage set calls.
+      expect(mockAsyncStorage.set.mock.calls.length).toBe(2);
     });
   });
 });

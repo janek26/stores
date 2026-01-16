@@ -1,28 +1,35 @@
+import path from 'path';
 import { defineConfig } from 'tsup';
+import { Platform, plugins, sourcePath } from './build/plugins';
 
 const isProduction = process.env.NODE_ENV === 'production';
+const platform: Platform = process.env.BUILD_TARGET === 'native' ? 'native' : 'web';
+
+const pluginEntries = Object.fromEntries(
+  Object.entries<Platform[]>(plugins)
+    .filter(([, platforms]) => platforms.includes(platform))
+    .map(([name]) => [name, sourcePath(name)])
+);
 
 export default defineConfig({
-  entry: ['src/index.ts'],
-  format: ['esm', 'cjs'],
   clean: true,
   dts: false,
-  target: 'es2020',
+  entry: { index: 'src/index.ts', ...pluginEntries },
   external: ['react', 'react-native', 'react-native-mmkv'],
+  format: ['esm', 'cjs'],
+  minify: isProduction ? 'terser' : false,
+  silent: true,
+  sourcemap: !isProduction,
+  target: 'es2020',
   treeshake: true,
 
-  // Production optimizations
-  minify: isProduction ? 'terser' : false,
-  sourcemap: isProduction ? false : true,
-
-  // Environment variables
-  define: {
-    'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
-  },
-
   esbuildOptions(options) {
+    options.alias = {
+      '@/env': path.resolve(__dirname, `src/env.${platform}.ts`),
+      '@/storage': path.resolve(__dirname, `src/storesStorage.${platform}.ts`),
+    };
     if (isProduction) {
-      options.drop = ['console', 'debugger'];
+      options.drop = ['debugger'];
       options.legalComments = 'none';
     }
   },
@@ -30,13 +37,11 @@ export default defineConfig({
   terserOptions: isProduction
     ? {
         compress: {
-          drop_console: true,
+          dead_code: true,
           drop_debugger: true,
-          passes: 2,
+          passes: 3,
         },
-        format: {
-          comments: false,
-        },
+        format: { comments: false },
       }
     : undefined,
 });

@@ -6,8 +6,13 @@ pnpm-lock.yaml
 
 # Build outputs
 dist
-build
 coverage
 
 # Logs
 *.log
+
+# Claude
+.claude/
+
+# Cloudflare Workers
+.wrangler

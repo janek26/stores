@@ -128,12 +128,12 @@ export type QueryStoreConfig<
 
   /**
    * Delay before triggering a fetch when parameters change.
-   * Accepts a number (ms), `'microtask'` (batched via `queueMicrotask`), or debounce options:
+   * Accepts a number (ms), false (no throttling), or debounce options:
    *
    * `{ delay: number, leading?: boolean, trailing?: boolean, maxWait?: number }`
-   * @default 'microtask'
+   * @default false
    */
-  paramChangeThrottle?: 'microtask' | false | number | DebounceOptions;
+  paramChangeThrottle?: false | number | DebounceOptions;
 
   /**
    * Parameters to be passed to the fetcher, defined as either direct values or `ReactiveParam` functions.
@@ -235,9 +235,11 @@ export type QueryStoreState<TData, TParams extends Record<string, unknown>, Cust
   isStale: (override?: number) => boolean;
 
   /**
-   * Resets the store to its initial state, clearing data, error, and any cached values.
+   * Tears down param subscriptions and timers and resets fetch state. Optionally resets store state.
+   * @param resetStoreState - If `true`, the store's state will be reset to its initial state.
+   * @default false
    */
-  reset: () => void;
+  reset: (resetStoreState?: boolean) => void;
 
   /**
    * Indicates whether the store should actively fetch data.

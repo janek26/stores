@@ -1,4 +1,4 @@
-import { unstable_batchedUpdates } from '@env';
+import { unstable_batchedUpdates } from '@/env';
 
 type Rank = number;
 type StoreId = string;
@@ -33,7 +33,7 @@ export function isCascadeActive(): boolean {
 
 /**
  * Rank of the currently running derive batch, or null if not in a batch.
- * */
+ */
 export function getCurrentDeriveRank(): Rank | null {
   return activeDeriveRank;
 }

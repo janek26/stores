@@ -7,7 +7,7 @@ import jsdocPlugin from 'eslint-plugin-jsdoc';
 
 export default [
   {
-    ignores: ['**/node_modules/', '**/build/', '**/dist/'],
+    ignores: ['**/node_modules/', '**/dist/', '**/.wrangler/'],
   },
   prettierRecommended,
   {
@@ -30,13 +30,14 @@ export default [
     plugins: {
       '@typescript-eslint': typescriptPlugin,
       'react-hooks': reactHooksPlugin,
-      'jsdoc': jsdocPlugin,
+      jsdoc: jsdocPlugin,
     },
     rules: {
       ...typescriptPlugin.configs.recommended.rules,
       ...reactHooksPlugin.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-redeclare': 'off',
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
       'no-undef': 'off',
       'no-redeclare': 'off',
       'react-hooks/refs': 'off',

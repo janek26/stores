@@ -1,4 +1,4 @@
-import { IS_DEV } from '@env';
+import { IS_DEV, IS_TEST } from '@/env';
 
 export class StoresError extends Error {
   cause: Error;
@@ -9,9 +9,22 @@ export class StoresError extends Error {
   }
 }
 
-export const logger = {
+export interface Logger {
+  debug: (message: string, context?: Record<string, unknown>) => void;
+  error: {
+    <T extends Error>(error: T, context?: Record<string, unknown>): void;
+    <T extends string>(error: T, context?: Record<string, unknown>): void;
+  };
+  info: (message: string, context?: Record<string, unknown>) => void;
+  warn: (message: string, context?: Record<string, unknown>) => void;
+}
+
+export let logger: Logger = {
+  debug: (message: string, context?: Record<string, unknown>) => {
+    if (IS_DEV) console.debug(message, context);
+  },
   error: (error: Error, context?: Record<string, unknown>) => {
-    if (IS_DEV) console.error(error, context);
+    if (IS_DEV && !IS_TEST) console.error(error, context);
   },
   info: (message: string, context?: Record<string, unknown>) => {
     if (IS_DEV) console.info(message, context);
@@ -24,4 +37,8 @@ export const logger = {
 export function ensureError(error: unknown): Error {
   if (error instanceof Error) return error;
   return new Error(String(error));
+}
+
+export function setLogger(customLogger: Logger): void {
+  logger = customLogger;
 }
